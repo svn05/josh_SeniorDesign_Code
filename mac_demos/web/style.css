@@ -1,0 +1,351 @@
+/* san vo, nov 21 2026 */
+:root {
+  font:
+    16px/1.5 Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  color: #232522;
+  background: #fafaf8;
+  --line: #d4d5cf;
+  --muted: #60625d;
+  --accent: #802c3c;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 52px 28px;
+}
+header,
+nav,
+.actions,
+.language-bar,
+.direction,
+.result-heading {
+  display: flex;
+  align-items: center;
+}
+header {
+  gap: 14px;
+  margin-bottom: 24px;
+}
+header strong {
+  color: var(--accent);
+  font-size: 21px;
+  letter-spacing: -0.045em;
+}
+h1 {
+  margin: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+  font-size: 18px;
+  font-weight: 500;
+}
+nav {
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: #fff;
+  border: 1px solid #bfc1bb;
+  border-radius: 5px;
+  padding: 8px 14px;
+  min-height: 40px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 550;
+}
+button:hover:enabled {
+  background: #edede8;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+button:disabled {
+  color: #777973;
+  border-color: var(--line);
+  background: transparent;
+  cursor: default;
+}
+nav button {
+  border: 0;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 0 12px;
+}
+nav button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: #212320;
+}
+nav button:hover:enabled {
+  background: transparent;
+  color: var(--accent);
+}
+section {
+  padding-top: 26px;
+}
+.language-bar,
+.result-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+.direction {
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.direction button {
+  font-size: 21px;
+  padding: 0;
+  min-width: 40px;
+}
+.direction button,
+.quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.quiet {
+  text-decoration: underline;
+  text-decoration-color: #a7a8a2;
+  text-underline-offset: 4px;
+  padding-inline: 8px;
+}
+.settings {
+  margin-top: 14px;
+  padding: 14px 0;
+  border-block: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.settings label {
+  flex: 1 1 210px;
+  font-size: 14px;
+}
+.settings .check {
+  flex-basis: 100%;
+  order: 9;
+}
+.check input {
+  width: auto;
+  min-height: 0;
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+}
+.pick {
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pick select {
+  width: auto;
+  max-width: 100%;
+  margin: 0 0 0 6px;
+  color: #232522;
+}
+.language-bar .pick {
+  margin-left: auto;
+}
+input,
+select {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 7px 9px;
+  background: #fff;
+  border: 1px solid #bfc1bb;
+  border-radius: 4px;
+}
+.compose {
+  margin-top: 16px;
+}
+textarea {
+  width: 100%;
+  display: block;
+  resize: vertical;
+  min-height: 125px;
+  padding: 16px;
+  font-size: 20px;
+  line-height: 1.45;
+  border: 1px solid #afb2aa;
+  border-radius: 5px;
+}
+textarea::placeholder {
+  color: #767871;
+}
+.actions {
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-top: 12px;
+}
+.primary {
+  color: #fff;
+  background: #292c28;
+  border-color: #292c28;
+}
+.primary:hover:enabled {
+  color: #fff;
+  background: #444940;
+}
+.primary.recording {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.sample {
+  margin-left: auto;
+}
+.status,
+.footnote,
+.transcript {
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.status {
+  margin: 12px 0 0;
+}
+.status:empty {
+  margin: 0;
+}
+.result,
+.spelling {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+h2,
+h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.answer {
+  margin: 8px 0;
+  font-size: clamp(26px, 4vw, 36px);
+  line-height: 1.24;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.transcript {
+  margin: 10px 0;
+}
+#originalLang {
+  font-weight: 600;
+}
+.sign-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 28px;
+  align-items: start;
+}
+.camera {
+  position: relative;
+  aspect-ratio: 1;
+  background: #252824;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.camera video,
+.camera canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(
+    -1
+  ); /* mirror, so moving your hand left moves it left on screen */
+}
+.camera canvas {
+  pointer-events: none;
+}
+.camera.wide {
+  aspect-ratio: 16 / 9;
+}
+.camera.wide video {
+  object-fit: contain;
+  transform: none; /* a mirrored sign would read backwards i think */
+}
+.camera button {
+  z-index: 1;
+}
+.live {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  min-width: 52px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  background: rgb(37 40 36 / 0.82);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 44px;
+  text-align: center;
+}
+.live.found {
+  background: var(--accent);
+  font-size: 34px;
+}
+.help {
+  margin: 6px 0 14px;
+}
+.footnote {
+  margin-top: 18px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  main {
+    padding: 24px 16px;
+  }
+  header {
+    margin-bottom: 16px;
+  }
+  section {
+    padding-top: 18px;
+  }
+  .sign-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .camera {
+    width: min(100%, 300px);
+  }
+  .sample {
+    margin-left: 0;
+  }
+  .direction {
+    font-size: 18px;
+    gap: 2px;
+  }
+}

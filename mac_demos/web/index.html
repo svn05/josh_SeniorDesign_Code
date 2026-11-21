@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- san vo, nov 21 2026 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UTEK · Bank counter</title>
+  <link rel="stylesheet" href="/web/style.css">
+  <script src="/web/demo.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><strong>UTEK</strong><h1>Bank counter</h1></header>
+    <nav aria-label="Demo">
+      <button id="showTalk" aria-controls="talk" aria-pressed="true">Translation</button>
+      <button id="showText" aria-controls="text" aria-pressed="false">Read a sign</button>
+      <button id="showSign" aria-controls="sign" aria-pressed="false">ASL fingerspelling</button>
+    </nav>
+
+    <section id="talk" aria-label="Translation">
+      <div class="language-bar">
+        <div class="direction">
+          <span id="fromLang">English</span>
+          <button id="swap" aria-label="Switch languages" title="Switch languages">⇄</button>
+          <span id="toLang" lang="fr">French · Français</span>
+        </div>
+        <label class="pick">Language <select id="language"></select></label>
+        <button id="settingsToggle" class="quiet" aria-controls="settings" aria-expanded="false">Settings</button>
+      </div>
+
+      <div id="settings" class="settings" hidden>
+        <label>Translation service
+          <select id="mode">
+            <option value="google">Google Cloud Translation</option>
+            <option value="offline">Offline rehearsal</option>
+          </select>
+        </label>
+        <label id="keyRow">Google API key
+          <input type="password" id="key" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+        </label>
+        <label>Microphone
+          <select id="micSource">
+            <option value="computer">This computer</option>
+            <option value="board">ESP32 over USB</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="keep"> Keep the last recording on this Mac for troubleshooting</label>
+        <label id="listenRow">Speech recognition
+          <select id="listen">
+            <option value="google">Google Cloud, then this Mac if unavailable</option>
+            <option value="whisper">This Mac (Whisper)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="compose">
+        <label class="sr-only" id="phraseLabel" for="phrase">Phrase in English</label>
+        <textarea id="phrase" rows="3" maxlength="1200" dir="auto" placeholder="Type a phrase or use the microphone."></textarea>
+        <div class="actions">
+          <button class="primary" id="record">Record a phrase</button>
+          <button id="translate" disabled>Translate text</button>
+          <button class="quiet sample" id="sample">Try sample audio</button>
+        </div>
+      </div>
+      <p id="talkStatus" class="status" role="status"></p>
+      <div id="result" class="result" hidden>
+        <div class="result-heading"><h2 id="resultLang">Translation</h2><button class="quiet" id="read">Speak translation</button></div>
+        <p id="translation" class="answer" dir="auto"></p>
+        <p class="transcript"><span id="originalLang"></span> <span id="original" dir="auto"></span></p>
+      </div>
+    </section>
+
+    <section id="text" aria-label="Read a sign" hidden>
+      <div class="sign-grid">
+        <div class="camera wide"><video id="textVideo" autoplay muted playsinline></video>
+          <button id="textCamera">Start camera</button>
+        </div>
+        <div class="sign-tools">
+          <h2>Read a sign</h2>
+          <p class="help">Hold the sign flat and facing the camera so it fills as much of the picture as possible.</p>
+          <label class="pick">Translate into <select id="textTarget"></select></label>
+          <div class="actions"><button class="primary" id="textCapture" disabled>Read and translate</button></div>
+          <p id="textStatus" class="status" role="status"></p>
+        </div>
+      </div>
+      <div id="textResult" class="result" hidden>
+        <div class="result-heading"><h2 id="textLang">Translation</h2><button class="quiet" id="textSpeak">Speak translation</button></div>
+        <p id="textTranslation" class="answer" dir="auto"></p>
+        <p class="transcript"><span id="textOriginalLang"></span> <span id="textOriginal" dir="auto"></span></p>
+      </div>
+    </section>
+
+    <section id="sign" aria-label="ASL fingerspelling" hidden>
+      <div class="sign-grid">
+        <div class="camera"><video id="video" autoplay muted playsinline></video>
+          <canvas id="overlay" aria-hidden="true"></canvas>
+          <output id="live" class="live" aria-label="Letter in view" hidden></output>
+          <button id="camera">Start camera</button>
+        </div>
+        <div class="sign-tools">
+          <h2>Fingerspell a name</h2>
+          <p class="help">Hold one hand up, palm toward the camera. Capture each letter once it shows on the preview, including repeats.</p>
+          <div class="actions"><button class="primary" id="capture" disabled>Capture letter</button>
+            <button class="quiet" id="anna">Try sample images</button></div>
+          <div id="spelling" class="spelling" hidden>
+            <h3>Spelled name</h3><p id="word" class="answer" aria-live="polite"></p>
+            <div class="actions"><button id="speakName">Speak name</button><button class="quiet" id="undo">Undo letter</button></div>
+          </div>
+          <p id="signStatus" class="status" role="status"></p>
+          <p class="footnote">J and Z use motion and aren’t supported.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
