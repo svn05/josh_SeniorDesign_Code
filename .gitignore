@@ -1,3 +1,4 @@
 .DS_Store
 __pycache__/
 mac_demos/last_recording_*
+upload_*.log

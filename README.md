@@ -31,9 +31,33 @@ Hold the button on the board while speaking and let go to translate. **Record a 
 
 While recording, the status line shows a ten-step level bar. Speech close to the microphone should light three to six steps. If it stays empty, check the three signal wires against the pin numbers in the sketch. The board sends raw sound with no noise suppression, so hold the microphone close to the speaker's mouth in a loud room.
 
+### ESP32 speaker and camera
+
+The same ESP32 can also play the translation on a speaker and pass on the picture from an ESP32-CAM, all over the one USB cable. Chrome only, like the microphone.
+
+| Part | Pin | Main ESP32 |
+| --- | --- | --- |
+| MAX98357A amp | VIN, GND | VIN (5V), GND |
+| | BCLK, LRC, DIN | D12, D14, D13 |
+| ESP32-CAM | 5V, GND | VIN (5V), GND |
+| | U0T | RX2 (D16) |
+| | U0R | TX2 (D17) |
+
+The microphone and button stay where they are (SCK D26, WS D25, SD D22, button D27).
+
+1. Open `esp32_board/esp32_board.ino` in the Arduino IDE, choose **ESP32 Dev Module** and upload it to the main ESP32. It replaces the microphone sketch and includes the microphone and button.
+2. Open `esp32_cam/esp32_cam.ino`, choose **AI Thinker ESP32-CAM** and upload it to the ESP32-CAM. Take the U0T and U0R wires off while uploading; the upload uses the same two pins.
+3. In the demo, open **Settings** and set **Speaker** to **ESP32 speaker** and **Camera** to **ESP32-CAM**. The speaker beeps when it is picked. The link `http://127.0.0.1:8765/?board=1` picks the ESP32 microphone, speaker and camera together.
+
+On San's Mac the upload button in the Arduino IDE stops at `env: bash: No such file or directory`. `upload_board.command` and `upload_cam.command` compile and upload the two sketches with the IDE's own `arduino-cli` instead. Double-click one, or run it with a port, for example `./upload_cam.command /dev/cu.usbserial-0001`. Each writes a log beside itself and names the program that has the port open if the port is busy.
+
+The speaker plays the Google voice, so it needs the Google key. Without one, the computer speaks. **Read a sign** and **ASL fingerspelling** show a small preview from the ESP32-CAM at about six pictures a second. **Read and translate** asks the ESP32-CAM for one full-size picture, which takes about three seconds. That needs the U0R wire. Without it the small preview is read instead, which only works for large text. If the picture is upside down or mirrored, set `FLIP` or `MIRROR` at the top of `esp32_cam.ino`.
+
+**Status on Nov 21:** not working on the hardware yet. `esp32_board.ino` compiles (ESP32 core 3.3.12) but has not been uploaded or run on the board, and `esp32_cam.ino` has not been compiled. The page side and the packet handling were tested on the Mac with simulated board data. With **Speaker** and **Camera** left on **This computer**, the demo behaves as before.
+
 ### Troubleshooting a recording
 
-In **Settings**, tick **Keep the last recording on this Mac for troubleshooting** to save the last phrase as `mac_demos/last_recording_board.wav` or `last_recording_computer.wav`, with a small `.json` beside it. These files are ignored by git. A link can preset the settings: `?mic=board` picks the ESP32, `?mode=offline` skips Google and `?keep=1` ticks that box.
+In **Settings**, tick **Keep the last recording on this Mac for troubleshooting** to save the last phrase as `mac_demos/last_recording_board.wav` or `last_recording_computer.wav`, with a small `.json` beside it. These files are ignored by git. A link can preset the settings: `?mic=board` picks the ESP32 microphone, `?speaker=board` its speaker, `?camera=board` the ESP32-CAM, `?mode=offline` skips Google and `?keep=1` ticks that box.
 
 ### Read a sign
 
@@ -56,6 +80,9 @@ On photos of signers the network was not trained on, it read about 9 letters in 
 - `mac_demos/training/` contains the scripts that produced `asl_letters.json`.
 - `mac_demos/examples/` contains the audio and hand-image fixtures.
 - `esp32_mic/esp32_mic.ino` is the microphone firmware for the ESP32.
+- `esp32_board/esp32_board.ino` is the microphone, speaker and camera relay firmware for the main ESP32.
+- `esp32_cam/esp32_cam.ino` is the firmware for the ESP32-CAM.
+- `upload_board.command` and `upload_cam.command` compile and upload those two sketches.
 
 The launcher uses the existing Anaconda Python and Hugging Face model cache on San’s Mac. The fingerspelling files are all in `mac_demos/web/` and need no network. Sources and licences for the hand tracker, the training data and the sample photos are listed in `mac_demos/THIRD_PARTY.md`.
 

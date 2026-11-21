@@ -99,7 +99,9 @@ window.speechSynthesis?.getVoices(); // starts loading the voice list
 async function say(text, language) {
   window.speechSynthesis?.cancel();
   player.pause();
-  let note = "";
+  stopBoardVoice();
+  let note = "",
+    aside = "";
   if (googleKey()) {
     try {
       if (clip.text !== text || clip.language !== language) {
@@ -118,11 +120,16 @@ async function say(text, language) {
               "The Google voice is unavailable.",
           );
         if (clip.url) URL.revokeObjectURL(clip.url);
-        clip = {
-          text,
-          language,
-          url: URL.createObjectURL(await response.blob()),
-        };
+        const blob = await response.blob();
+        clip = { text, language, blob, url: URL.createObjectURL(blob) };
+      }
+      if (el("speakerSource").value === "board") {
+        try {
+          await playOnBoard(clip.blob);
+          return "";
+        } catch (e) {
+          aside = "Played on this computer: " + e.message; // board speaker didnt work, use the mac
+        }
       }
       player.src = clip.url;
       try {
@@ -131,7 +138,7 @@ async function say(text, language) {
         if (e.name !== "NotAllowedError") throw e;
         return "Press Speak translation to hear it.";
       }
-      return "";
+      return aside;
     } catch (e) {
       note = " (" + e.message + ")";
     }
@@ -155,6 +162,8 @@ async function say(text, language) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = LANGUAGES[language][1];
   window.speechSynthesis.speak(utterance);
+  if (el("speakerSource").value === "board" && !note)
+    return "The ESP32 speaker only plays the Google voice, so this computer spoke.";
   return note && "Spoken with this computer's voice" + note + ".";
 }
 // speak without blocking the page, anything worth knowing goes in that tabs status line
@@ -323,6 +332,8 @@ function controls(busy, recording = false) {
     "language",
     "listen",
     "micSource",
+    "speakerSource",
+    "cameraSource",
     "showText",
     "showSign",
   ])
@@ -481,19 +492,20 @@ async function openBoard(quiet) {
   }
 }
 
-// keep the board connected. reopen after an unplug or if the stream stalls (only while its the chosen mic)
+// keep the board connected. reopen after an unplug or if the stream stalls (only while something on it is chosen)
 setInterval(() => {
-  if (el("micSource").value !== "board") return;
+  if (!boardWanted()) return;
   if (board && performance.now() - boardHeardAt > 3000 && !boardConnecting) {
     board = null; // stream went quiet, drop it and open a fresh one below
     boardReader?.cancel().catch(() => {});
   }
   if (!board && !boardConnecting && navigator.serial && boardSeen) {
     if (!talkBusy)
-      el("talkStatus").textContent =
-        "ESP32 microphone not connected. Reconnecting…";
+      el("talkStatus").textContent = "ESP32 not connected. Reconnecting…";
     connectBoard(true)
-      .then(boardReport)
+      .then(() =>
+        el("micSource").value === "board" ? boardReport() : "ESP32 connected.",
+      )
       .then(
         (report) => {
           if (!talkBusy) el("talkStatus").textContent = report;
@@ -530,11 +542,23 @@ async function readBoard(port) {
               bytes[at] === 85 &&
               bytes[at + 1] === 84 &&
               bytes[at + 2] === 69 &&
-              bytes[at + 3] === 75
-            ) // the 4 magic letters
+              (bytes[at + 3] === 75 || bytes[at + 3] === 67)
+            ) // the 4 magic letters. UTEK is sound, UTEC is a piece of the camera's stream
           )
             at++;
           if (at + 8 > bytes.length) break;
+          if (bytes[at + 3] === 67) {
+            const size = bytes[at + 4] | (bytes[at + 5] << 8);
+            if (!size || size > 2048) {
+              at += 4; // not a real packet header
+              continue;
+            }
+            if (at + 6 + size > bytes.length) break;
+            camFeed(bytes.subarray(at + 6, at + 6 + size));
+            at += 6 + size;
+            boardHeardAt = performance.now();
+            continue;
+          }
           const count = bytes[at + 6] | (bytes[at + 7] << 8);
           if (bytes[at + 4] > 63 || !count || count > 2048) {
             at += 4; // not a real packet header
@@ -552,6 +576,7 @@ async function readBoard(port) {
           if (boardChunks) boardGlitches += bytes[at + 5];
           boardNoMic = (bytes[at + 4] & 4) !== 0;
           boardWiring = bytes[at + 4] >> 4;
+          boardNew = (bytes[at + 4] & 8) !== 0;
           if (boardChunks) {
             boardPackets++;
             if (boardNoMic) boardDeaf++;
@@ -770,15 +795,312 @@ el("record").onclick = async () => {
     controls(false);
   }
 };
+// the rest of the board: a speaker (max98357a amp) and a camera (an esp32-cam wired to the
+// main esp32). both need esp32_board.ino on the main board, it sets bit 3 of the flags byte.
+// packets to the board: "UT", a type letter, a 16 bit length, then that many bytes
+// S is sound for the speaker, X stops the speaker, C gets passed on to the camera
+let boardNew = false, // the board runs esp32_board.ino and not the mic only sketch
+  boardWrites = Promise.resolve(), // one packet at a time
+  boardVoice = 0; // goes up with every clip so a new one stops the one before
+const boardWanted = () =>
+  ["micSource", "speakerSource", "cameraSource"].some(
+    (id) => el(id).value === "board",
+  );
+const OLD_SKETCH =
+  "The ESP32 is running the microphone-only sketch. Upload esp32_board/esp32_board.ino to use its speaker and camera.";
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function boardWrite(type, payload = new Uint8Array(0)) {
+  const port = board;
+  const packet = new Uint8Array(5 + payload.length);
+  packet.set([
+    85,
+    84,
+    type.charCodeAt(0),
+    payload.length & 255,
+    payload.length >> 8,
+  ]);
+  packet.set(payload, 5);
+  const sent = boardWrites.then(async () => {
+    if (!port?.writable || port !== board)
+      throw Error("the ESP32 is not connected.");
+    const writer = port.writable.getWriter();
+    try {
+      await writer.write(packet);
+    } finally {
+      writer.releaseLock();
+    }
+  });
+  boardWrites = sent.catch(() => {});
+  return sent;
+}
+
+function stopBoardVoice() {
+  boardVoice++;
+  if (board && boardNew && el("speakerSource").value === "board")
+    boardWrite("X").catch(() => {});
+}
+
+// play 16 bit samples (at BOARD_RATE) on the board. they go down the cable 0.4 s ahead of
+// real time, the board holds 1.5 s at most. comes back as soon as the sound has started
+async function boardSound(samples) {
+  await connectBoard(true).catch(() => {
+    throw Error("the ESP32 is not connected.");
+  });
+  if (!boardNew) throw Error(OLD_SKETCH);
+  const mine = ++boardVoice;
+  await boardWrite("X");
+  (async () => {
+    const started = performance.now();
+    for (let sent = 0; sent < samples.length && mine === boardVoice; ) {
+      const due = Math.min(
+        samples.length,
+        Math.floor(
+          ((performance.now() - started) / 1000 + 0.4) * BOARD_RATE,
+        ),
+      );
+      while (sent < due) {
+        const count = Math.min(1024, due - sent);
+        await boardWrite(
+          "S",
+          new Uint8Array(
+            samples.buffer,
+            samples.byteOffset + sent * 2,
+            count * 2,
+          ),
+        );
+        sent += count;
+      }
+      await pause(40);
+    }
+  })().catch(() => {});
+}
+
+// a google voice clip (mp3) -> mono samples at the board's rate -> the board
+async function playOnBoard(blob) {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  let context, decoded;
+  try {
+    try {
+      context = new Context({ sampleRate: BOARD_RATE });
+    } catch {
+      context = new Context();
+    }
+    decoded = await context.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    context?.close();
+  }
+  const step = decoded.sampleRate / BOARD_RATE; // 1 unless the browser refused 16 khz
+  const samples = new Int16Array(Math.floor(decoded.length / step));
+  const channels = [];
+  for (let c = 0; c < decoded.numberOfChannels; c++)
+    channels.push(decoded.getChannelData(c));
+  for (let i = 0; i < samples.length; i++) {
+    let sum = 0;
+    for (const data of channels) sum += data[Math.floor(i * step)];
+    samples[i] = Math.max(-1, Math.min(1, sum / channels.length)) * 32767;
+  }
+  await boardSound(samples);
+}
+
+// short beep, so picking the speaker in settings shows right away if its wired
+function boardBeep() {
+  const samples = new Int16Array(BOARD_RATE * 0.4);
+  for (let i = 0; i < samples.length; i++) {
+    const fade = Math.min(1, i / 400, (samples.length - i) / 400);
+    samples[i] = 9000 * fade * Math.sin((2 * Math.PI * 660 * i) / BOARD_RATE);
+  }
+  return boardSound(samples);
+}
+
+// camera. the esp32-cam sends jpegs nonstop: "UCAM", a letter (v small preview, s full size
+// still, e the camera itself is not answering), a 32 bit length, then the jpeg. previews
+// are drawn on a canvas and the canvas is handed out as a camera stream, so the rest of
+// the page uses it the same way as the mac's camera
+const camCanvas = document.createElement("canvas");
+const camInk = camCanvas.getContext("2d");
+let camPending = new Uint8Array(0),
+  camBytes = 0,
+  camFrames = 0,
+  camShown = 0,
+  camOrder = 0,
+  camDrawn = 0,
+  camFault = false, // the esp32-cam says its camera is not answering
+  camOpening = false,
+  camStream = null,
+  stillWaiter = null;
+const camLive = () => camStream?.getVideoTracks()[0]?.readyState === "live";
+
+function camFeed(chunk) {
+  camBytes += chunk.length;
+  const bytes = new Uint8Array(camPending.length + chunk.length);
+  bytes.set(camPending);
+  bytes.set(chunk, camPending.length);
+  let at = 0;
+  for (;;) {
+    while (
+      at + 4 <= bytes.length &&
+      !(
+        bytes[at] === 85 &&
+        bytes[at + 1] === 67 &&
+        bytes[at + 2] === 65 &&
+        bytes[at + 3] === 77
+      )
+    )
+      at++;
+    if (at + 9 > bytes.length) break;
+    const kind = bytes[at + 4];
+    const size =
+      (bytes[at + 5] |
+        (bytes[at + 6] << 8) |
+        (bytes[at + 7] << 16) |
+        (bytes[at + 8] << 24)) >>>
+      0;
+    if (kind === 101 && size === 0) {
+      camFault = true;
+      at += 9;
+      continue;
+    }
+    // a preview is a few kb, a still around 100 kb. anything else is not a real header
+    if (
+      !(kind === 118 && size >= 64 && size <= 80000) &&
+      !(kind === 115 && size >= 64 && size <= 700000)
+    ) {
+      at += 4;
+      continue;
+    }
+    if (at + 9 + size > bytes.length) break;
+    const jpeg = bytes.slice(at + 9, at + 9 + size);
+    at += 9 + size;
+    if (jpeg[0] === 255 && jpeg[1] === 216) camFrame(kind, jpeg);
+  }
+  camPending = bytes.slice(at);
+}
+
+function camFrame(kind, jpeg) {
+  camFrames++;
+  camFault = false;
+  const blob = new Blob([jpeg], { type: "image/jpeg" });
+  if (kind === 115) {
+    stillWaiter?.(blob);
+    return;
+  }
+  if (!camOpening && !camLive()) return; // nobody is watching
+  const mine = ++camOrder;
+  createImageBitmap(blob).then(
+    (picture) => {
+      if (mine > camDrawn) {
+        camDrawn = mine;
+        if (
+          camCanvas.width !== picture.width ||
+          camCanvas.height !== picture.height
+        ) {
+          camCanvas.width = picture.width;
+          camCanvas.height = picture.height;
+        }
+        camInk.drawImage(picture, 0, 0);
+        camShown++;
+      }
+      picture.close();
+    },
+    () => {}, // a damaged picture, the next one is along in a moment
+  );
+}
+
+function camProblem(bytesBefore) {
+  if (camFault)
+    return "The ESP32-CAM is running but its camera is not answering. Reseat the camera's ribbon cable and press the reset button on the ESP32-CAM.";
+  if (camBytes === bytesBefore)
+    return "Nothing is arriving from the ESP32-CAM. Check that esp32_cam.ino is uploaded to it, that it has power (5V and GND) and that its U0T pin is wired to RX2 (D16) on the main ESP32.";
+  return "The ESP32-CAM is sending data but no pictures. Check that CAM_BAUD is the same in both sketches and that the wire from U0T is pushed in.";
+}
+
+async function boardCamera() {
+  await connectBoard();
+  if (!boardNew) throw Error(OLD_SKETCH);
+  const bytesBefore = camBytes,
+    shownBefore = camShown;
+  camOpening = true;
+  try {
+    for (let waited = 0; camShown === shownBefore && waited < 5000; waited += 100)
+      await pause(100);
+  } finally {
+    camOpening = false;
+  }
+  if (camShown === shownBefore) throw Error(camProblem(bytesBefore));
+  camStream = camCanvas.captureStream();
+  return camStream;
+}
+
+const openCamera = (constraints) =>
+  el("cameraSource").value === "board"
+    ? boardCamera()
+    : openMedia(constraints, "camera");
+
+// ask the esp32-cam for one full size picture. the preview stops for about 3 s while it comes
+function boardStill() {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      stillWaiter = null;
+      reject(Error("No full-size picture arrived."));
+    }, 9000);
+    stillWaiter = (blob) => {
+      clearTimeout(timer);
+      stillWaiter = null;
+      resolve(blob);
+    };
+    boardWrite("C", new Uint8Array([33, 115])).catch(() => {}); // "!s"
+  });
+}
+
+// pressed is the change event. its missing when a link preset picks the speaker, no beep then
+el("speakerSource").onchange = async (pressed) => {
+  if (el("speakerSource").value !== "board") {
+    boardVoice++;
+    if (board && boardNew) boardWrite("X").catch(() => {});
+    return;
+  }
+  try {
+    el("talkStatus").textContent = "Connecting to the ESP32 speaker…";
+    await connectBoard();
+    if (!boardNew) throw Error(OLD_SKETCH);
+    if (pressed) await boardBeep();
+    el("talkStatus").textContent =
+      "ESP32 speaker connected." +
+      (pressed
+        ? " It should have just beeped. If it stayed silent, check the amp's wires: BCLK to D12, LRC to D14, DIN to D13, VIN to 5V, GND to GND."
+        : "");
+  } catch (e) {
+    el("talkStatus").textContent = e.message;
+  }
+};
+el("cameraSource").onchange = async () => {
+  if (el("cameraSource").value !== "board") return;
+  try {
+    el("talkStatus").textContent = "Connecting to the ESP32-CAM…";
+    await connectBoard();
+    if (!boardNew) throw Error(OLD_SKETCH);
+    const framesBefore = camFrames,
+      bytesBefore = camBytes;
+    for (let waited = 0; camFrames === framesBefore && waited < 3000; waited += 100)
+      await pause(100);
+    el("talkStatus").textContent =
+      camFrames === framesBefore
+        ? camProblem(bytesBefore)
+        : "ESP32-CAM connected. Use Start camera on Read a sign or ASL fingerspelling.";
+  } catch (e) {
+    el("talkStatus").textContent = e.message;
+  }
+};
+
 // read a sign: take a picture, google vision reads the text, then translate + speak it
 let textLanguage = "fr";
 el("textCamera").onclick = async () => {
   el("textCamera").disabled = true;
   try {
-    textCamera = await openMedia(
-      { video: { width: { ideal: 1920 }, height: { ideal: 1080 } } },
-      "camera",
-    );
+    textCamera = await openCamera({
+      video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
     if (el("text").hidden) {
       stopTracks(textCamera);
       textCamera = null;
@@ -811,17 +1133,29 @@ el("textCapture").onclick = async () => {
   }
   textBusy = true;
   el("textCapture").disabled = el("textTarget").disabled = true;
+  let aside = "";
   try {
-    const frame = document.createElement("canvas");
-    frame.width = video.videoWidth;
-    frame.height = video.videoHeight;
-    frame.getContext("2d").drawImage(video, 0, 0);
+    // the esp32-cam preview is small so ask it for one full size picture to read
+    let picture = null;
+    if (textCamera === camStream) {
+      el("textStatus").textContent =
+        "Taking a full-size picture with the ESP32-CAM…";
+      picture = await boardStill().catch(() => null);
+      if (!picture)
+        aside =
+          " · The ESP32-CAM sent no full-size picture, so the small preview was read. Check the wire from TX2 (D17) to its U0R pin.";
+    }
+    if (!picture) {
+      const frame = document.createElement("canvas");
+      frame.width = video.videoWidth;
+      frame.height = video.videoHeight;
+      frame.getContext("2d").drawImage(video, 0, 0);
+      picture = await new Promise((resolve) =>
+        frame.toBlob(resolve, "image/jpeg", 0.92),
+      );
+    }
     const data = new FormData();
-    data.set(
-      "image",
-      await new Promise((resolve) => frame.toBlob(resolve, "image/jpeg", 0.92)),
-      "sign.jpg",
-    );
+    data.set("image", picture, "sign.jpg");
     data.set("target", el("textTarget").value);
     data.set("key", googleKey());
     el("textStatus").textContent = "Reading the sign and translating…";
@@ -842,10 +1176,11 @@ el("textCapture").onclick = async () => {
     el("textStatus").textContent =
       "Google Cloud Vision and Translation · " +
       result.seconds +
-      " s processing";
+      " s processing" +
+      aside;
     speakOut(result.translation, textLanguage, "textStatus");
   } catch (e) {
-    el("textStatus").textContent = e.message;
+    el("textStatus").textContent = e.message + aside;
   } finally {
     textBusy = false;
     el("textCapture").disabled = !textCamera;
@@ -1063,7 +1398,7 @@ el("camera").onclick = async () => {
   try {
     el("signStatus").textContent = "Loading the hand tracker…";
     await loadHands();
-    camera = await openMedia({ video: { facingMode: "user" } }, "camera");
+    camera = await openCamera({ video: { facingMode: "user" } });
     if (el("sign").hidden) {
       stopTracks(camera);
       camera = null;
@@ -1133,6 +1468,7 @@ el("anna").onclick = () =>
   });
 
 // links can preset the settings: ?mic=board picks the esp32, ?mode=offline skips google, ?keep=1 keeps recordings
+// ?speaker=board and ?camera=board pick the esp32 speaker and the esp32-cam, ?board=1 picks all three
 // the google key is never taken from a link
 const preset = new URLSearchParams(location.search);
 if (preset.get("mode") === "offline") {
@@ -1140,7 +1476,16 @@ if (preset.get("mode") === "offline") {
   el("mode").onchange();
 }
 if (preset.get("keep") === "1") el("keep").checked = true;
-if (preset.get("mic") === "board") {
+const wholeBoard = preset.get("board") === "1";
+if (wholeBoard || preset.get("mic") === "board") {
   el("micSource").value = "board";
   el("micSource").onchange();
+}
+if (wholeBoard || preset.get("speaker") === "board") {
+  el("speakerSource").value = "board";
+  el("speakerSource").onchange();
+}
+if (wholeBoard || preset.get("camera") === "board") {
+  el("cameraSource").value = "board";
+  el("cameraSource").onchange();
 }
